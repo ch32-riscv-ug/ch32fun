@@ -1,0 +1,97 @@
+# Build every example with GCC and with clang (ch32rv-toolchain) and compare
+# the sizes. The report is the run's summary; the CSVs are in the artifacts.
+name: Toolchain size comparison
+
+on:
+  workflow_dispatch:
+    inputs:
+      baseline_ref:
+        description: "ch32fun ref built unchanged with GCC as the baseline"
+        default: master
+      clang_version:
+        description: "ch32rv-toolchain release (without the leading v)"
+        default: 23.1.5-3
+  push:
+    branches: [clang-toolchain]
+
+env:
+  BASELINE_REF: ${{ inputs.baseline_ref || 'master' }}
+  CLANG_VERSION: ${{ inputs.clang_version || '23.1.5-3' }}
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # ch32fun as it is (baseline_ref), GCC
+          - { name: gcc-master, baseline: true, toolchain: "", opt: "" }
+          # this branch, GCC: should match gcc-master byte for byte
+          - { name: gcc, baseline: false, toolchain: gcc, opt: "" }
+          - { name: clang-Os, baseline: false, toolchain: clang, opt: "-Os -flto" }
+          - { name: clang-Oz, baseline: false, toolchain: clang, opt: "-Oz -flto" }
+    name: build (${{ matrix.name }})
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          path: tools
+      - uses: actions/checkout@v4
+        with:
+          path: src
+          ref: ${{ matrix.baseline && env.BASELINE_REF || github.sha }}
+
+      - name: GCC
+        if: matrix.toolchain != 'clang'
+        run: |
+          sudo apt-get update
+          sudo apt-get -yqq purge man-db || true
+          sudo apt-get install -y --no-install-recommends make libnewlib-dev gcc-riscv64-unknown-elf
+          riscv64-unknown-elf-gcc --version | head -1
+          echo "SIZE=riscv64-unknown-elf-size" >> "$GITHUB_ENV"
+
+      - name: clang (ch32rv-toolchain ${{ env.CLANG_VERSION }})
+        if: matrix.toolchain == 'clang'
+        run: |
+          f=ch32rv-toolchain-$CLANG_VERSION-x86_64-unknown-linux-gnu.tar.gz
+          base=https://github.com/ch32-riscv-ug/ch32rv-toolchain/releases/download/v$CLANG_VERSION
+          cd "$RUNNER_TEMP"
+          curl -fsSLO "$base/$f" && curl -fsSLO "$base/$f.sha256"
+          sha256sum -c "$f.sha256"
+          tar -xzf "$f"
+          bin=$RUNNER_TEMP/ch32rv-toolchain/bin
+          "$bin/clang" --version | head -1
+          echo "CLANG_BIN=$bin/" >> "$GITHUB_ENV"
+          echo "SIZE=$bin/llvm-size" >> "$GITHUB_ENV"
+
+      - name: Build all examples
+        run: |
+          args=()
+          [ -n "${{ matrix.toolchain }}" ] && args+=("TOOLCHAIN=${{ matrix.toolchain }}")
+          [ -n "${{ matrix.opt }}" ] && args+=("OPT=${{ matrix.opt }}")
+          [ "${{ matrix.toolchain }}" = clang ] && args+=("CLANG_BIN=$CLANG_BIN")
+          tools/misc/toolchain_compare/build.sh src "${{ matrix.name }}" out "${args[@]}"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: sizes-${{ matrix.name }}
+          path: out
+
+  report:
+    needs: build
+    if: always()
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: sizes-*
+          path: results
+      - name: Report
+        run: |
+          python3 misc/toolchain_compare/report.py gcc-master report results/*/sizes.csv
+          cat report/report.md >> "$GITHUB_STEP_SUMMARY"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: report
+          path: report
