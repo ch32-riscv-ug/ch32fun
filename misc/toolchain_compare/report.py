@@ -19,6 +19,7 @@ rows = defaultdict(dict)  # example -> config -> row
 configs = []
 for f in files:
     for r in csv.DictReader(open(f)):
+        r.setdefault("seconds", "")
         if r["config"] not in configs:
             configs.append(r["config"])
         if r["status"] == "ok":
@@ -60,6 +61,23 @@ for c in configs:
         p("\n</details>\n")
 
 common = sorted(e for e in rows if all(ok(e, c) for c in configs))
+
+p(f"## ビルド時間(全構成で成功した {len(common)} サンプル)\n")
+p("サンプルごとの make の実時間(コンパイルとリンク)。ツールチェーンの準備は含まない。ランナーごとの性能差があるので目安。\n")
+p("| 構成 | 合計 [s] | 基準比 | 中央値 [s] | 最大 [s] | 全体の実時間 |")
+p("|---|---:|---:|---:|---:|---|")
+walls = {}
+for f in files:
+    t = Path(f).with_name("time.txt")
+    if t.exists():
+        name = next(csv.DictReader(open(f)), {}).get("config")
+        walls[name] = t.read_text().strip()
+base_sec = sum(float(rows[e][baseline].get("seconds") or 0) for e in common)
+for c in configs:
+    secs = [float(rows[e][c].get("seconds") or 0) for e in common]
+    tot = sum(secs)
+    p(f"| `{c}` | {tot:.1f} | {pct(tot, base_sec)} | {statistics.median(secs) if secs else 0:.2f} | {max(secs, default=0):.2f} | {walls.get(c, '-')} |")
+p("")
 p(f"## 合計(全構成で成功した {len(common)} サンプル)\n")
 p("| 構成 | Flash 合計 | 基準比 | RAM 合計 | 基準比 | Flash 比の中央値 | 小さくなった | 大きくなった | 同じ |")
 p("|---|---:|---:|---:|---:|---:|---:|---:|---:|")
