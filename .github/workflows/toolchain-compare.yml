@@ -25,18 +25,19 @@ jobs:
       matrix:
         include:
           # ch32fun as it is (baseline_ref), GCC: -Os -flto
-          - { name: gcc-master, baseline: true, toolchain: "", opt: "", xw: "" }
-          # this branch, GCC: gcc should match gcc-master byte for byte
-          - { name: gcc, baseline: false, toolchain: gcc, opt: "", xw: "" }
-          - { name: gcc-Oz, baseline: false, toolchain: gcc, opt: "-Oz -flto", xw: "" }
-          - { name: gcc-Os-sr, baseline: false, toolchain: gcc, opt: "-Os -flto -msave-restore", xw: "" }
-          - { name: gcc-Oz-sr, baseline: false, toolchain: gcc, opt: "-Oz -flto -msave-restore", xw: "" }
+          - { name: gcc-master, baseline: true, toolchain: "", opt: "", extra: "" }
+          # this branch, GCC: gcc should match gcc-master byte for byte.
+          # (GCC 13's -Oz gave the same bytes as -Os on every example.)
+          - { name: gcc, baseline: false, toolchain: gcc, opt: "", extra: "" }
+          - { name: gcc-Os-sr, baseline: false, toolchain: gcc, opt: "-Os -flto -msave-restore", extra: "" }
           # clang: ch32fun's level, then the Arduino core's default (-Oz -flto
           # with XW where the core has it) and its smallest (+ -msave-restore)
-          - { name: clang-Os, baseline: false, toolchain: clang, opt: "-Os -flto", xw: "0" }
-          - { name: clang-Oz, baseline: false, toolchain: clang, opt: "-Oz -flto", xw: "0" }
-          - { name: clang-Oz-xw, baseline: false, toolchain: clang, opt: "-Oz -flto", xw: "1" }
-          - { name: clang-Oz-xw-sr, baseline: false, toolchain: clang, opt: "-Oz -flto -msave-restore", xw: "1" }
+          - { name: clang-Os, baseline: false, toolchain: clang, opt: "-Os -flto", extra: "XW=0" }
+          - { name: clang-Oz, baseline: false, toolchain: clang, opt: "-Oz -flto", extra: "XW=0" }
+          - { name: clang-Oz-xw, baseline: false, toolchain: clang, opt: "-Oz -flto", extra: "XW=1" }
+          - { name: clang-Oz-xw-sr, baseline: false, toolchain: clang, opt: "-Oz -flto -msave-restore", extra: "XW=1" }
+          # V00x with clang_rt's division instead of misc/libgcc.a's
+          - { name: clang-Oz-xw-rt, baseline: false, toolchain: clang, opt: "-Oz -flto", extra: "XW=1 MISC_LIBGCC=0" }
     name: build (${{ matrix.name }})
     runs-on: ubuntu-24.04
     steps:
@@ -77,7 +78,8 @@ jobs:
           [ -n "${{ matrix.toolchain }}" ] && args+=("TOOLCHAIN=${{ matrix.toolchain }}")
           [ -n "${{ matrix.opt }}" ] && args+=("OPT=${{ matrix.opt }}")
           [ "${{ matrix.toolchain }}" = clang ] && args+=("CLANG_BIN=$CLANG_BIN")
-          [ -n "${{ matrix.xw }}" ] && args+=("XW=${{ matrix.xw }}")
+          read -ra extra <<< "${{ matrix.extra }}"
+          args+=("${extra[@]}")
           tools/misc/toolchain_compare/build.sh src "${{ matrix.name }}" out "${args[@]}"
 
       - uses: actions/upload-artifact@v4

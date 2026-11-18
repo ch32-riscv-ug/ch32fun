@@ -109,7 +109,11 @@ ifeq ($(findstring CH32V00,$(TARGET_MCU)),CH32V00) # CH32V002, 3, 4, 5, 6, 7
 	MCU_PACKAGE?=1
 	GENERATED_LD_FILE?=$(CH32FUN)/generated_ch32v003.ld
 	LINKER_SCRIPT?=$(GENERATED_LD_FILE)
-	ifeq ($(TOOLCHAIN),gcc)
+	# misc/libgcc.a: small rv32ec division routines, also ahead of clang_rt
+	# with clang (MISC_LIBGCC=0 leaves clang with clang_rt's own).
+	MISC_LIBGCC?=1
+	ifeq ($(TOOLCHAIN)$(MISC_LIBGCC),clang0)
+	else
 		LDFLAGS+=-L$(CH32FUN)/../misc -lgcc
 	endif
 	# Note: The CH32V003 is different from the other 00x variants and needs a different ARCH
