@@ -1074,6 +1074,13 @@ void USART_WKUP_IRQHandler( void )		__attribute__((section(VECTOR_HANDLER_SECTIO
 
 void handle_reset( void ) __attribute__((section(".text.handle_reset")));
 
+// handle_reset is naked: clang takes only asm statements there.
+#if defined(__clang__)
+	#define FUN_RESET_STORE32( reg, val ) asm volatile( "li a0, %0\n	li a1, %1\n	sw a1, 0(a0)\n" : : "i"((uint32_t)&(reg)), "i"(val) : "a0", "a1", "memory" )
+#else
+	#define FUN_RESET_STORE32( reg, val ) (reg) = (val)
+#endif
+
 #if !FUNCONF_OVERRIDE_STARTUP
 #if FUNCONF_ISR_IN_RAM
 	void Init()         __attribute__((naked)) __attribute((section(".init"))) __attribute((weak,alias("InitDefault"))) __attribute((naked));
@@ -1192,9 +1199,9 @@ asm volatile(
 );
 
 #if defined( FUNCONF_SYSTICK_USE_HCLK ) && FUNCONF_SYSTICK_USE_HCLK
-	SysTick->CTLR = 5;
+	FUN_RESET_STORE32( SysTick->CTLR, 5 );
 #else
-	SysTick->CTLR = 1;
+	FUN_RESET_STORE32( SysTick->CTLR, 1 );
 #endif
 
 	// set mepc to be main as the root app.
@@ -1292,9 +1299,9 @@ void handle_reset( void )
 #endif
 
 #if defined( FUNCONF_SYSTICK_USE_HCLK ) && FUNCONF_SYSTICK_USE_HCLK && !defined(CH32V10x)
-	SysTick->CTLR = 5;
+	FUN_RESET_STORE32( SysTick->CTLR, 5 );
 #else
-	SysTick->CTLR = 1;
+	FUN_RESET_STORE32( SysTick->CTLR, 1 );
 #endif
 
 	// set mepc to be main as the root app.
@@ -1440,15 +1447,19 @@ void handle_reset( void )
 #endif
 
 #if defined( FUNCONF_SYSTICK_USE_HCLK ) && FUNCONF_SYSTICK_USE_HCLK
-	SysTick->CTLR = 5;
+	FUN_RESET_STORE32( SysTick->CTLR, 5 );
 #else
-	SysTick->CTLR = 1;
+	FUN_RESET_STORE32( SysTick->CTLR, 1 );
 #endif
 
 
 
 #if defined(FUNCONF_ICACHE_EN) && FUNCONF_ICACHE_EN
+#if defined(__clang__)
+	asm volatile( "call setup_cache\n" : : "i"(setup_cache) : "ra", "a0", "a1", "a2", "a3", "a4", "a5", "t0", "t1", "t2", "memory" );
+#else
 	setup_cache();
+#endif
 #endif
 
 	asm volatile(
@@ -1558,7 +1569,9 @@ __attribute__ ((naked)) void longjmp( jmp_buf env, int val )
 "	add a0, a0, a1\n"
 "	ret\n"
 	);
+#if !defined(__clang__)
 	__builtin_unreachable(); // Disable warning about no return.
+#endif
 }
 
 #if defined( FUNCONF_USE_UARTPRINTF ) && FUNCONF_USE_UARTPRINTF

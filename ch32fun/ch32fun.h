@@ -1035,10 +1035,17 @@ int funAnalogRead( int nAnalogNumber );
 #endif
 
 
-void DefaultIRQHandler( void ) __attribute__((section(VECTOR_HANDLER_SECTION))) __attribute__((naked)) __attribute__((used));
+// clang allows only asm statements in naked functions: handlers written in C are not naked there.
+#if defined(__clang__)
+	#define FUN_NAKED_C
+#else
+	#define FUN_NAKED_C __attribute__((naked))
+#endif
+
+void DefaultIRQHandler( void ) __attribute__((section(VECTOR_HANDLER_SECTION))) FUN_NAKED_C __attribute__((used));
 // used to clear the CSS flag in case of clock fail switch
 #if defined(FUNCONF_USE_CLK_SEC) && FUNCONF_USE_CLK_SEC
-	void NMI_RCC_CSS_IRQHandler( void ) __attribute__((section(VECTOR_HANDLER_SECTION))) __attribute__((naked)) __attribute__((used));
+	void NMI_RCC_CSS_IRQHandler( void ) __attribute__((section(VECTOR_HANDLER_SECTION))) FUN_NAKED_C __attribute__((used));
 #endif
 
 void funRebootToBootloader();
