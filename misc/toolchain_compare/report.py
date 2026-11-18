@@ -4,7 +4,7 @@
 Usage: report.py BASELINE OUTDIR CSV...
   BASELINE  configuration name the others are compared with
   OUTDIR    gets report.md and sizes-wide.csv
-Flash is text + data, RAM is data + bss.
+flash and ram come from build.sh (flash image size, static RAM).
 """
 import csv
 import statistics
@@ -22,8 +22,7 @@ for f in files:
         if r["config"] not in configs:
             configs.append(r["config"])
         if r["status"] == "ok":
-            t, d, b = int(r["text"]), int(r["data"]), int(r["bss"])
-            r.update(flash=t + d, ram=d + b)
+            r.update(flash=int(r["flash"]), ram=int(r["ram"]))
         rows[r["example"]][r["config"]] = r
 if baseline in configs:
     configs.remove(baseline)
@@ -43,7 +42,7 @@ def pct(a, b):
 out = []
 p = out.append
 p("# ch32fun ツールチェーン別サイズ比較\n")
-p(f"基準: `{baseline}`。Flash = text + data、RAM = data + bss(バイト)。\n")
+p(f"基準: `{baseline}`。Flash = 書き込むイメージ(.bin)のサイズ、RAM = 静的に使う RAM(.data + .bss + CH5xx の highcode)。単位はバイト。\n")
 
 p("## ビルド結果\n")
 p("| 構成 | 成功 | 失敗 |")
@@ -107,5 +106,5 @@ with open(outdir / "sizes-wide.csv", "w", newline="") as f:
         line = [e]
         for c in configs:
             r = rows[e].get(c, {})
-            line += [r.get("status", "")] + [r.get(k, "") for k in ("text", "data", "bss", "flash", "ram")]
+            line += [r.get("status", "")] + [str(r.get(k, "")) for k in ("text", "data", "bss", "flash", "ram")]
         w.writerow(line)
