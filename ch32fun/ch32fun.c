@@ -1081,10 +1081,18 @@ void handle_reset( void ) __attribute__((section(".text.handle_reset")));
 	#define FUN_RESET_STORE32( reg, val ) (reg) = (val)
 #endif
 
+// Nothing refers to the .init entry when the vectors are in RAM: clang's LTO
+// drops it before the linker script's KEEP(.init) is seen.
+#if defined(__clang__)
+	#define FUN_LTO_KEEP __attribute__((used))
+#else
+	#define FUN_LTO_KEEP
+#endif
+
 #if !FUNCONF_OVERRIDE_STARTUP
 #if FUNCONF_ISR_IN_RAM
 	void Init()         __attribute__((naked)) __attribute((section(".init"))) __attribute((weak,alias("InitDefault"))) __attribute((naked));
-	void InitDefault()  __attribute__((naked)) __attribute((section(".init"))) __attribute((naked));
+	void InitDefault()  __attribute__((naked)) __attribute((section(".init"))) __attribute((naked)) FUN_LTO_KEEP;
 
 #if !defined(FUNCONF_TINYVECTOR) || !FUNCONF_TINYVECTOR
 	void InitDefault( void )
