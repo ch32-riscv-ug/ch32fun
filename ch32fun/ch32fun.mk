@@ -36,6 +36,37 @@ else ifeq ($(OS_NAME),netbsd)
 endif
 
 PREFIX?=$(PREFIX_DEFAULT)
+
+# Toolchain: TOOLCHAIN=gcc (default) or TOOLCHAIN=clang.
+# For clang, CLANG_BIN is the directory holding clang and the llvm-* tools,
+# with a trailing slash (empty: from PATH), e.g. CLANG_BIN=/opt/ch32rv-toolchain/bin/
+# OPT sets the optimisation flags for either toolchain.
+TOOLCHAIN?=gcc
+OPT?=-Os -flto
+ifeq ($(TOOLCHAIN),clang)
+	CLANG_BIN?=
+	TOOLCHAIN_CC:=$(CLANG_BIN)clang
+	TOOLCHAIN_OBJCOPY:=$(CLANG_BIN)llvm-objcopy
+	TOOLCHAIN_OBJDUMP:=$(CLANG_BIN)llvm-objdump
+	TOOLCHAIN_SIZE:=$(CLANG_BIN)llvm-size
+	TOOLCHAIN_CFLAGS:=--target=riscv32-unknown-elf
+	TOOLCHAIN_DEFAULT_CFLAGS:=
+	TOOLCHAIN_LIBS:=-lclang_rt.builtins
+	TOOLCHAIN_LDFLAGS:=
+	# XW=1 adds WCH's XW compressed instructions (_xwchc). Not for QingKe V3A/V4A cores.
+	XW?=0
+else ifeq ($(TOOLCHAIN),gcc)
+	TOOLCHAIN_CC:=$(PREFIX)-gcc
+	TOOLCHAIN_OBJCOPY:=$(PREFIX)-objcopy
+	TOOLCHAIN_OBJDUMP:=$(PREFIX)-objdump
+	TOOLCHAIN_SIZE:=$(PREFIX)-size
+	TOOLCHAIN_CFLAGS:=-static-libgcc
+	TOOLCHAIN_DEFAULT_CFLAGS:=-fno-tree-loop-distribute-patterns
+	TOOLCHAIN_LIBS:=-lgcc
+	TOOLCHAIN_LDFLAGS:=-Wl,--print-memory-usage
+else
+	ERROR:=$(error Unknown TOOLCHAIN $(TOOLCHAIN): use gcc or clang)
+endif
 # We used to check if riscv64-linux-gnu-gcc exists, because it would still produce valid output with -ffreestanding.
 # It was different enough that we decided not to automatically fallback to it.
 
@@ -58,20 +89,27 @@ ifeq ($(DEBUG),1)
 	EXTRA_CFLAGS+=-DFUNCONF_DEBUG=1
 endif
 
-CFLAGS?=-g -Os -flto -ffunction-sections -fdata-sections -fmessage-length=0 -msmall-data-limit=8 -fno-tree-loop-distribute-patterns
-LDFLAGS+=-Wl,--print-memory-usage -Wl,-Map=$(TARGET).map
+CFLAGS?=-g $(OPT) -ffunction-sections -fdata-sections -fmessage-length=0 -msmall-data-limit=8 $(TOOLCHAIN_DEFAULT_CFLAGS)
+LDFLAGS+=$(TOOLCHAIN_LDFLAGS) -Wl,-Map=$(TARGET).map
 
-# Get GCC major version in a shell-agnostic way
-GCCVERSION := $(shell $(PREFIX)-gcc -dumpversion)
-GCCMAJOR := $(firstword $(subst ., ,$(GCCVERSION)))
-# every major version below 13 maps to 0, anything 13 or above maps to 1
-GCCVERSION13 := $(if $(filter 1 2 3 4 5 6 7 8 9 10 11 12,$(GCCMAJOR)),0,1)
+ifeq ($(TOOLCHAIN),gcc)
+	# Get GCC major version in a shell-agnostic way
+	GCCVERSION := $(shell $(PREFIX)-gcc -dumpversion)
+	GCCMAJOR := $(firstword $(subst ., ,$(GCCVERSION)))
+	# every major version below 13 maps to 0, anything 13 or above maps to 1
+	GCCVERSION13 := $(if $(filter 1 2 3 4 5 6 7 8 9 10 11 12,$(GCCMAJOR)),0,1)
+else
+	# clang knows zmmul
+	GCCVERSION13 := 1
+endif
 
 ifeq ($(findstring CH32V00,$(TARGET_MCU)),CH32V00) # CH32V002, 3, 4, 5, 6, 7
 	MCU_PACKAGE?=1
 	GENERATED_LD_FILE?=$(CH32FUN)/generated_ch32v003.ld
 	LINKER_SCRIPT?=$(GENERATED_LD_FILE)
-	LDFLAGS+=-L$(CH32FUN)/../misc -lgcc
+	ifeq ($(TOOLCHAIN),gcc)
+		LDFLAGS+=-L$(CH32FUN)/../misc -lgcc
+	endif
 	# Note: The CH32V003 is different from the other 00x variants and needs a different ARCH
 	ifeq ($(TARGET_MCU),CH32V003)
 		CFLAGS_ARCH+=-march=rv32ec -mabi=ilp32e
@@ -373,13 +411,21 @@ ifeq ($(IS_CH5XX),1)
 endif
 
 
-LDFLAGS+=-lgcc
+ifeq ($(TOOLCHAIN),clang)
+	# clang wants Zicsr spelled out for csr instructions
+	CFLAGS_ARCH:=$(foreach f,$(CFLAGS_ARCH),$(if $(filter -march=%,$(f)),$(f)_zicsr$(if $(filter 1,$(XW)),_xwchc),$(f)))
+	NEWLIB_INCLUDE:=
+else
+	NEWLIB_INCLUDE:=-I$(NEWLIB)
+endif
+
+LDFLAGS+=$(TOOLCHAIN_LIBS)
 GENERATED_LD_FILE:=$(CH32FUN)/generated_$(TARGET_MCU_PACKAGE)_$(TARGET_MCU_MEMORY_SPLIT).ld
 LINKER_SCRIPT?=$(GENERATED_LD_FILE)
 
 CFLAGS+= \
-	$(CFLAGS_ARCH) -static-libgcc \
-	-I$(NEWLIB) \
+	$(TOOLCHAIN_CFLAGS) $(CFLAGS_ARCH) \
+	$(NEWLIB_INCLUDE) \
 	-I$(CH32FUN)/../extralibs \
 	-I$(CH32FUN) \
 	-nostdlib \
@@ -389,10 +435,10 @@ LDFLAGS+=-T $(LINKER_SCRIPT) -Wl,--gc-sections
 FILES_TO_COMPILE:=$(SYSTEM_C) $(TARGET).$(TARGET_EXT) $(ADDITIONAL_C_FILES) 
 
 $(TARGET).bin : $(TARGET).elf
-	$(PREFIX)-objdump -S $^ > $(TARGET).lst
-	$(PREFIX)-objcopy -R .storage  -O binary $< $(TARGET).bin
-	$(PREFIX)-objcopy -j .storage -O binary $< $(TARGET)_ext.bin
-	$(PREFIX)-objcopy -O ihex $< $(TARGET).hex
+	$(TOOLCHAIN_OBJDUMP) -S $^ > $(TARGET).lst
+	$(TOOLCHAIN_OBJCOPY) -R .storage  -O binary $< $(TARGET).bin
+	$(TOOLCHAIN_OBJCOPY) -j .storage -O binary $< $(TARGET)_ext.bin
+	$(TOOLCHAIN_OBJCOPY) -O ihex $< $(TARGET).hex
 
 ifeq ($(OS),Windows_NT)
 closechlink :
@@ -429,15 +475,15 @@ FLASH_EXT_COMMAND?=$(MINICHLINK)/minichlink -w $< $(EXT_ORIGIN) -b
 
 .PHONY : $(GENERATED_LD_FILE)
 $(GENERATED_LD_FILE) :
-	$(PREFIX)-gcc -E -P -x c -DTARGET_MCU=$(TARGET_MCU) -DMCU_PACKAGE=$(MCU_PACKAGE) -DTARGET_MCU_LD=$(TARGET_MCU_LD) -DTARGET_MCU_MEMORY_SPLIT=$(TARGET_MCU_MEMORY_SPLIT) $(CH32FUN)/ch32fun.ld > $(GENERATED_LD_FILE)
+	$(TOOLCHAIN_CC) -E -P -x c -DTARGET_MCU=$(TARGET_MCU) -DMCU_PACKAGE=$(MCU_PACKAGE) -DTARGET_MCU_LD=$(TARGET_MCU_LD) -DTARGET_MCU_MEMORY_SPLIT=$(TARGET_MCU_MEMORY_SPLIT) $(CH32FUN)/ch32fun.ld > $(GENERATED_LD_FILE)
 
 $(TARGET).elf : $(FILES_TO_COMPILE) $(LINKER_SCRIPT) $(EXTRA_ELF_DEPENDENCIES)
-	$(PREFIX)-gcc -o $@ $(FILES_TO_COMPILE) $(CFLAGS) $(LDFLAGS)
+	$(TOOLCHAIN_CC) -o $@ $(FILES_TO_COMPILE) $(CFLAGS) $(LDFLAGS)
 
 # Rule for independently building ch32fun.o indirectly, instead of recompiling it from source every time.
 # Not used in the default 003fun toolchain, but used in more sophisticated toolchains.
 ch32fun.o : $(SYSTEM_C)
-	$(PREFIX)-gcc -c -o $@ $(SYSTEM_C) $(CFLAGS)
+	$(TOOLCHAIN_CC) -c -o $@ $(SYSTEM_C) $(CFLAGS)
 
 # Only rebuild minichlink if it doesn't exist at all.
 $(MINICHLINK)/minichlink :
