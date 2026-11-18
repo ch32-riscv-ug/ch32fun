@@ -411,12 +411,13 @@ ifeq ($(IS_CH5XX),1)
 endif
 
 
+# Not indented: after the rules above, a line starting with a tab is a recipe line.
 ifeq ($(TOOLCHAIN),clang)
-	# clang wants Zicsr spelled out for csr instructions
-	CFLAGS_ARCH:=$(foreach f,$(CFLAGS_ARCH),$(if $(filter -march=%,$(f)),$(f)_zicsr$(if $(filter 1,$(XW)),_xwchc),$(f)))
-	NEWLIB_INCLUDE:=
+# clang wants Zicsr spelled out for csr instructions
+CFLAGS_ARCH:=$(foreach f,$(CFLAGS_ARCH),$(if $(filter -march=%,$(f)),$(f)_zicsr$(if $(filter 1,$(XW)),_xwchc),$(f)))
+NEWLIB_INCLUDE:=
 else
-	NEWLIB_INCLUDE:=-I$(NEWLIB)
+NEWLIB_INCLUDE:=-I$(NEWLIB)
 endif
 
 LDFLAGS+=$(TOOLCHAIN_LIBS)
