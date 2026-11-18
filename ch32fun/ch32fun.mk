@@ -52,8 +52,10 @@ ifeq ($(TOOLCHAIN),clang)
 	TOOLCHAIN_CFLAGS:=--target=riscv32-unknown-elf
 	TOOLCHAIN_DEFAULT_CFLAGS:=
 	TOOLCHAIN_LIBS:=-lclang_rt.builtins
-	TOOLCHAIN_LDFLAGS:=
-	# XW=1 adds WCH's XW compressed instructions (_xwchc). Not for QingKe V3A/V4A cores.
+	# --relax-gp: reach small data from gp in one instruction, as GNU ld does by default.
+	TOOLCHAIN_LDFLAGS:=-Wl,--relax-gp
+	# XW=1 adds WCH's XW compressed instructions (_xwchc) where the core has them:
+	# not CH32V103 (QingKe V3A) nor CH5xx (V4A on CH58x; the others unconfirmed).
 	XW?=0
 else ifeq ($(TOOLCHAIN),gcc)
 	TOOLCHAIN_CC:=$(PREFIX)-gcc
@@ -413,8 +415,9 @@ endif
 
 # Not indented: after the rules above, a line starting with a tab is a recipe line.
 ifeq ($(TOOLCHAIN),clang)
+XW_MARCH:=$(if $(and $(filter 1,$(XW)),$(if $(filter CH32V10% CH57% CH58% CH59%,$(TARGET_MCU)),,1)),_xwchc)
 # clang wants Zicsr spelled out for csr instructions
-CFLAGS_ARCH:=$(foreach f,$(CFLAGS_ARCH),$(if $(filter -march=%,$(f)),$(f)_zicsr$(if $(filter 1,$(XW)),_xwchc),$(f)))
+CFLAGS_ARCH:=$(foreach f,$(CFLAGS_ARCH),$(if $(filter -march=%,$(f)),$(f)_zicsr$(XW_MARCH),$(f)))
 NEWLIB_INCLUDE:=
 else
 NEWLIB_INCLUDE:=-I$(NEWLIB)
